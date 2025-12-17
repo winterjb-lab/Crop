@@ -79,7 +79,7 @@
       color: var(--muted);
     }
 
-    select{
+    select, input[type="text"]{
       width: 100%;
       height: var(--control-h);
       border: 1px solid var(--border);
@@ -89,7 +89,7 @@
       font-size: 14px;
       outline: none;
     }
-    select:focus{ border-color: rgba(17,24,39,.22); }
+    select:focus, input[type="text"]:focus{ border-color: rgba(17,24,39,.22); }
 
     .actions{
       display: inline-flex;
@@ -157,13 +157,23 @@
       line-height: 1.35;
     }
 
+    .firetvControls{
+      display: none; /* shown only for Fire TV presets */
+      margin-top: 12px;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: flex-end;
+    }
+    .firetvControls .field{ flex: 1 1 260px; min-width: 240px; }
+    .firetvControls .field.small{ flex: 0 0 240px; }
+    .firetvControls .toggle{ background: #fff; }
+
     /* ===== Crop preview window ===== */
     .previewWrap{
       margin-top: 12px;
       padding: 14px;
     }
 
-    /* Center the preview inside the card */
     .cropSizer{
       width: min(var(--preview-w), 100%);
       margin: 0 auto;
@@ -181,9 +191,8 @@
       user-select: none;
     }
 
-    /* Hide images until loaded to avoid broken-image icons */
-    #img, #overlayGuides{
-      display: none;
+    #img, #overlayGuides, #badgePreview, #subTextPreview{
+      display: none; /* avoid broken icons / only show when active */
     }
 
     #img{
@@ -212,6 +221,26 @@
       border-radius: 18px;
       z-index: 3;
       opacity: 0.88;
+    }
+
+    /* Rating badge preview (exact position) */
+    #badgePreview{
+      position: absolute;
+      z-index: 4;
+      pointer-events: none;
+      image-rendering: auto;
+    }
+
+    /* Subscription text preview (fixed safe area) */
+    #subTextPreview{
+      position: absolute;
+      z-index: 4;
+      pointer-events: none;
+      color: rgba(255,255,255,0.95);
+      font-weight: 600;
+      text-shadow: 0 2px 10px rgba(0,0,0,0.45);
+      white-space: normal;
+      line-height: 1.1;
     }
 
     .footerNote{
@@ -259,6 +288,32 @@
         </div>
       </div>
 
+      <!-- Fire TV-only controls -->
+      <div id="firetvControls" class="firetvControls" style="display:none;">
+        <div class="field small">
+          <div class="label">Age rating (Fire TV only)</div>
+          <select id="ratingSelect" aria-label="Age rating">
+            <option value="none">None</option>
+            <option value="U">U</option>
+            <option value="PG">PG</option>
+            <option value="12">12</option>
+            <option value="12A">12A</option>
+            <option value="15">15</option>
+            <option value="18">18</option>
+          </select>
+        </div>
+
+        <label class="toggle" for="toggleSubText">
+          <input type="checkbox" id="toggleSubText" />
+          Subscription text
+        </label>
+
+        <div class="field" style="min-width: 320px;">
+          <div class="label">Text (Fire TV only)</div>
+          <input id="subText" type="text" placeholder="e.g., Subscription required" />
+        </div>
+      </div>
+
       <div id="qualityWarning" class="quality-warning"></div>
       <div id="status" aria-live="polite"></div>
     </div>
@@ -268,6 +323,8 @@
         <div id="crop" aria-label="Image crop area (drag to pan, scroll to zoom)" role="application" tabindex="0">
           <img id="img" alt="" />
           <img id="overlayGuides" alt="" />
+          <img id="badgePreview" alt="" />
+          <div id="subTextPreview"></div>
         </div>
       </div>
       <div class="footerNote">Tip: Zoom-out is limited to prevent black borders.</div>
@@ -275,6 +332,17 @@
   </div>
 
   <script>
+    /* ===== Rating badge assets ===== */
+    const RATING_PNG = {
+      none: "",
+      U: "U.png",
+      PG: "PG.png",
+      "12": "12.png",
+      "12A": "12A.png",
+      "15": "15.png",
+      "18": "18.png",
+    };
+
     /* ===== Presets ===== */
     const PRESETS = {
       rotator: {
@@ -286,7 +354,14 @@
         exportMime: "image/jpeg",
         exportExt: "jpg",
         exportQualityCapable: true,
-        guideOverlay: "rotator-overlay.png"
+        guideOverlay: "rotator-overlay.png",
+
+        // Fire TV rating placement (provided by you via PS Transform panel)
+        firetv: {
+          rating: { x: 1775, y: 578, w: 40, h: 36 },
+          // Text placed to the LEFT of badge, vertically centered to badge
+          subText: { maxW: 520, gap: 12, fontPx: 20, maxLines: 2 }
+        }
       },
       screensaver: {
         name: "Fire TV Screen Saver",
@@ -297,7 +372,13 @@
         exportMime: "image/jpeg",
         exportExt: "jpg",
         exportQualityCapable: true,
-        guideOverlay: "screensaver-overlay.png"
+        guideOverlay: "screensaver-overlay.png",
+
+        // Derived from Rotator margins: right=105, bottom=106, same badge size
+        firetv: {
+          rating: { x: 1775, y: 938, w: 40, h: 36 }, // 1080 - 106 - 36 = 938
+          subText: { maxW: 640, gap: 12, fontPx: 22, maxLines: 2 }
+        }
       },
       prime_rotator_3840: {
         name: "Prime Video Feature Rotator Connected TV and desktop",
@@ -310,18 +391,16 @@
         exportQualityCapable: true,
         guideOverlay: "Prime Video Feature Rotator - 3840x1440.png"
       },
-      /* UPDATED: Mobile & tablet now exports JPG (not PNG) */
       prime_mobile_1936: {
         name: "Prime Video Feature Rotator Mobile and tablet",
         w: 1936, h: 1089,
         minInputW: 1936, minInputH: 1089,
         maxBytes: 10 * 1024 * 1024,
-        previewW: 768, // ~20% smaller
+        previewW: 768,
         exportMime: "image/jpeg",
         exportExt: "jpg",
         exportQualityCapable: true,
-        // As requested (no extension). Will auto-try ".png" if needed.
-        guideOverlay: "Prime Video Feature Rotator - 1936x1089"
+        guideOverlay: "Prime Video Feature Rotator - 1936x1089.png"
       },
     };
 
@@ -335,14 +414,25 @@
     const toggleGuides   = document.getElementById('toggleGuides');
     const qualityWarning = document.getElementById('qualityWarning');
 
+    const firetvControls = document.getElementById('firetvControls');
+    const ratingSelect   = document.getElementById('ratingSelect');
+    const toggleSubText  = document.getElementById('toggleSubText');
+    const subTextInput   = document.getElementById('subText');
+    const badgePreview   = document.getElementById('badgePreview');
+    const subTextPreview = document.getElementById('subTextPreview');
+
     // State
     let current = PRESETS.rotator;
     let imgUrl = null;
     let naturalW = 0, naturalH = 0;
     let scale = 1;
-    let minScale = 1; // prevents zoom-out beyond cover
+    let minScale = 1;
     let offsetX = 0, offsetY = 0;
     let originalBaseName = "image";
+
+    // Rating state
+    let ratingValue = "none";
+    const ratingImgCache = {}; // key -> HTMLImageElement
 
     function setStatus(msg){ statusEl.textContent = msg || ""; }
 
@@ -433,8 +523,7 @@
       }
     }
 
-    // Overlay load: hidden until loaded; if no extension, try ".png"
-    function setOverlayWithFallback(path) {
+    function setOverlay(path) {
       overlayGuides.style.display = "none";
       overlayGuides.onerror = null;
       overlayGuides.onload = null;
@@ -444,20 +533,130 @@
       overlayGuides.onload = () => {
         overlayGuides.style.display = toggleGuides.checked ? "block" : "none";
       };
-
       overlayGuides.src = path;
+    }
 
-      overlayGuides.onerror = () => {
-        if (/\.[a-z0-9]+$/i.test(path)) return;
-        overlayGuides.onerror = null;
-        overlayGuides.src = path + ".png";
+    function isFireTvPreset() {
+      return !!current.firetv;
+    }
+
+    function updateFireTvControlsVisibility() {
+      const show = isFireTvPreset();
+      firetvControls.style.display = show ? "flex" : "none";
+
+      if (!show) {
+        // hide previews too
+        badgePreview.style.display = "none";
+        subTextPreview.style.display = "none";
+      } else {
+        updateBadgePreview();
+        updateSubTextPreview();
+      }
+    }
+
+    function ensureRatingImageLoaded(value) {
+      const src = RATING_PNG[value] || "";
+      if (!src) return null;
+
+      if (ratingImgCache[value]) return ratingImgCache[value];
+
+      const im = new Image();
+      im.onload = () => {
+        // refresh preview placement when loaded
+        updateBadgePreview();
       };
+      im.src = src;
+      ratingImgCache[value] = im;
+      return im;
+    }
+
+    function getPreviewScale() {
+      // crop element width corresponds to preview width
+      const { w: cropW } = cropRect();
+      return cropW / current.w;
+    }
+
+    function updateBadgePreview() {
+      if (!isFireTvPreset()) return;
+      const cfg = current.firetv.rating;
+      const src = RATING_PNG[ratingValue] || "";
+
+      if (!src || ratingValue === "none") {
+        badgePreview.style.display = "none";
+        badgePreview.src = "";
+        return;
+      }
+
+      ensureRatingImageLoaded(ratingValue);
+
+      const s = getPreviewScale();
+      badgePreview.src = src;
+
+      badgePreview.style.width  = (cfg.w * s) + "px";
+      badgePreview.style.height = (cfg.h * s) + "px";
+      badgePreview.style.left   = (cfg.x * s) + "px";
+      badgePreview.style.top    = (cfg.y * s) + "px";
+      badgePreview.style.display = "block";
+    }
+
+    function wrapText(ctx, text, maxWidth) {
+      const words = (text || "").trim().split(/\s+/).filter(Boolean);
+      const lines = [];
+      let line = "";
+
+      for (const w of words) {
+        const test = line ? (line + " " + w) : w;
+        if (ctx.measureText(test).width <= maxWidth) {
+          line = test;
+        } else {
+          if (line) lines.push(line);
+          line = w;
+        }
+      }
+      if (line) lines.push(line);
+      return lines;
+    }
+
+    function updateSubTextPreview() {
+      if (!isFireTvPreset()) return;
+
+      const enabled = toggleSubText.checked && (subTextInput.value || "").trim().length > 0;
+      if (!enabled) {
+        subTextPreview.style.display = "none";
+        subTextPreview.textContent = "";
+        return;
+      }
+
+      const cfgR = current.firetv.rating;
+      const cfgT = current.firetv.subText;
+
+      const s = getPreviewScale();
+      const fontPx = Math.max(10, Math.round(cfgT.fontPx * s));
+
+      // fixed box to the LEFT of badge
+      const boxW = Math.round(cfgT.maxW * s);
+      const gap  = Math.round(cfgT.gap * s);
+
+      const badgeLeft = cfgR.x * s;
+      const badgeTop  = cfgR.y * s;
+      const badgeH    = cfgR.h * s;
+
+      const boxLeft = Math.max(0, Math.round(badgeLeft - gap - boxW));
+      const boxTop  = Math.round(badgeTop + (badgeH/2) - (fontPx * 0.55)); // optical centering
+
+      subTextPreview.style.left = boxLeft + "px";
+      subTextPreview.style.top  = boxTop + "px";
+      subTextPreview.style.width = boxW + "px";
+      subTextPreview.style.fontSize = fontPx + "px";
+      subTextPreview.textContent = subTextInput.value.trim();
+      subTextPreview.style.display = "block";
     }
 
     function applyPresetVisuals() {
       resizePreviewForPreset();
-      setOverlayWithFallback(current.guideOverlay || "");
-      exportBtn.textContent = current.exportExt.toUpperCase() === "PNG" ? "Export PNG" : "Export JPG";
+      setOverlay(current.guideOverlay || "");
+      exportBtn.textContent = "Export JPG";
+      updateFireTvControlsVisibility();
     }
 
     presetSel.addEventListener('change', () => {
@@ -470,8 +669,16 @@
     });
 
     toggleGuides.addEventListener('change', () => {
-      setOverlayWithFallback(current.guideOverlay || "");
+      setOverlay(current.guideOverlay || "");
     });
+
+    ratingSelect.addEventListener('change', () => {
+      ratingValue = ratingSelect.value;
+      updateBadgePreview();
+    });
+
+    toggleSubText.addEventListener('change', updateSubTextPreview);
+    subTextInput.addEventListener('input', updateSubTextPreview);
 
     /* ===== File load ===== */
     fileInput.addEventListener('change', e => {
@@ -483,7 +690,6 @@
       if (imgUrl) URL.revokeObjectURL(imgUrl);
       imgUrl = URL.createObjectURL(file);
 
-      // Hide until loaded (prevents broken icon)
       img.style.display = "none";
       img.src = imgUrl;
 
@@ -503,6 +709,10 @@
         exportBtn.disabled = false;
         setStatus(`Image loaded: ${naturalW}×${naturalH}px`);
         updateQualityWarning();
+
+        // refresh overlay previews
+        updateBadgePreview();
+        updateSubTextPreview();
       };
       probe.onerror = () => setStatus("Could not load that image.");
       probe.src = imgUrl;
@@ -571,7 +781,7 @@
       setStatus("Exporting…");
       exportBtn.disabled = true;
 
-      const { w: cropW, h: cropH } = cropRect();
+      const { w: cropW, h: cropH } = { w: crop.clientWidth, h: crop.clientHeight };
 
       const sx = Math.max(0, (-offsetX) / scale);
       const sy = Math.max(0, (-offsetY) / scale);
@@ -586,21 +796,72 @@
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
 
+      // Draw user image
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, current.w, current.h);
 
-      let blob = null;
-
-      if (current.exportQualityCapable) {
-        let q = 0.92;
-        for (let i = 0; i < 12; i++) {
-          blob = await canvasToBlob(canvas, current.exportMime, q);
-          if (!blob) break;
-          if (!current.maxBytes || blob.size <= current.maxBytes) break;
-          q -= 0.07;
-          if (q < 0.35) break;
+      // Fire TV overlays: rating badge + optional subscription text
+      if (isFireTvPreset()) {
+        // 1) Rating badge
+        const cfgR = current.firetv.rating;
+        const src = RATING_PNG[ratingValue] || "";
+        if (src && ratingValue !== "none") {
+          const badgeImg = ensureRatingImageLoaded(ratingValue);
+          if (badgeImg && badgeImg.complete && badgeImg.naturalWidth) {
+            ctx.drawImage(badgeImg, cfgR.x, cfgR.y, cfgR.w, cfgR.h);
+          } else {
+            // If it isn't loaded yet, attempt a synchronous fallback by loading a fresh Image
+            const tmp = new Image();
+            tmp.src = src;
+            await new Promise(r => { tmp.onload = r; tmp.onerror = r; });
+            if (tmp.naturalWidth) ctx.drawImage(tmp, cfgR.x, cfgR.y, cfgR.w, cfgR.h);
+          }
         }
-      } else {
-        blob = await canvasToBlob(canvas, current.exportMime);
+
+        // 2) Subscription text
+        const enabled = toggleSubText.checked && (subTextInput.value || "").trim().length > 0;
+        if (enabled) {
+          const cfgT = current.firetv.subText;
+          const text = subTextInput.value.trim();
+
+          const boxW = cfgT.maxW;
+          const gap = cfgT.gap;
+
+          const badgeLeft = cfgR.x;
+          const badgeTop = cfgR.y;
+          const badgeH = cfgR.h;
+
+          const boxLeft = Math.max(0, badgeLeft - gap - boxW);
+          const baselineY = badgeTop + (badgeH / 2) + (cfgT.fontPx * 0.38); // optical centering
+
+          ctx.save();
+          ctx.fillStyle = "rgba(255,255,255,0.95)";
+          ctx.font = `600 ${cfgT.fontPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+          ctx.textBaseline = "alphabetic";
+
+          const lines = wrapText(ctx, text, boxW).slice(0, cfgT.maxLines || 2);
+          const lineH = Math.round(cfgT.fontPx * 1.15);
+
+          // If multiple lines, shift up so block stays centered around badge midline
+          const blockH = (lines.length - 1) * lineH;
+          let y = baselineY - (blockH / 2);
+
+          for (const line of lines) {
+            ctx.fillText(line, boxLeft, y);
+            y += lineH;
+          }
+          ctx.restore();
+        }
+      }
+
+      // Encode JPEG with size loop
+      let blob = null;
+      let q = 0.92;
+      for (let i = 0; i < 12; i++) {
+        blob = await canvasToBlob(canvas, "image/jpeg", q);
+        if (!blob) break;
+        if (!current.maxBytes || blob.size <= current.maxBytes) break;
+        q -= 0.07;
+        if (q < 0.35) break;
       }
 
       if (!blob) {
@@ -609,7 +870,7 @@
         return;
       }
 
-      const filename = `${originalBaseName}_${presetSlugFromHumanName()}_BG.${current.exportExt}`;
+      const filename = `${originalBaseName}_${presetSlugFromHumanName()}_BG.jpg`;
 
       const kb = Math.round(blob.size / 1024);
       const mb = (blob.size / (1024 * 1024)).toFixed(2);
@@ -637,6 +898,7 @@
       resizePreviewForPreset();
       applyPresetVisuals();
       updateQualityWarning();
+      updateFireTvControlsVisibility();
     }
     init();
 
@@ -646,7 +908,8 @@
       if (scale < minScale) scale = minScale;
       [offsetX, offsetY] = constrain(offsetX, offsetY, scale);
       applyTransform();
-      updateQualityWarning();
+      updateBadgePreview();
+      updateSubTextPreview();
     });
   </script>
 </body>
